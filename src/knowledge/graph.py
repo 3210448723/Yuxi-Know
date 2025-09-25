@@ -1,4 +1,5 @@
 import json
+import contextlib
 import os
 import traceback
 import warnings
@@ -21,7 +22,7 @@ class GraphDatabase:
         self.files = []
         self.status = "closed"
         self.kgdb_name = "neo4j"
-        self.embed_model_name = os.getenv("GRAPH_EMBED_MODEL_NAME") or "siliconflow/BAAI/bge-m3"
+        self.embed_model_name = os.getenv("GRAPH_EMBED_MODEL_NAME") or "ollama/nomic-embed-text"
         self.embed_model = select_embedding_model(self.embed_model_name)
         self.work_dir = os.path.join(config.save_dir, "knowledge_graph", self.kgdb_name)
         os.makedirs(self.work_dir, exist_ok=True)
@@ -33,18 +34,31 @@ class GraphDatabase:
         self.start()
 
     def start(self):
+        # 本地运行默认连接 localhost；在 docker-compose 内运行时请通过环境变量覆盖为 bolt://graph:7687
         uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
         username = os.environ.get("NEO4J_USERNAME", "neo4j")
         password = os.environ.get("NEO4J_PASSWORD", "0123456789")
-        logger.info(f"Connecting to Neo4j: {uri}/{self.kgdb_name}")
+        logger.info(f"Connecting to Neo4j: {uri}/{self.kgdb_name} as user={username}")
         try:
+            # 先创建驱动并验证连接以尽早发现认证/网络错误
             self.driver = GD.driver(f"{uri}/{self.kgdb_name}", auth=(username, password))
+            try:
+                self.driver.verify_connectivity()
+            except Exception as ve:
+                # 连接不可用，关闭驱动并抛出到外层捕获
+                with contextlib.suppress(Exception):
+                    self.driver.close()
+                raise ve
             self.status = "open"
             logger.info(f"Connected to Neo4j: {self.get_graph_info(self.kgdb_name)}")
             # 连接成功后保存图数据库信息
             self.save_graph_info(self.kgdb_name)
         except Exception as e:
-            logger.error(f"Failed to connect to Neo4j: {e}, {uri}, {self.kgdb_name}, {username}, {password}")
+            # 避免泄露密码到日志
+            logger.error(
+                f"Failed to connect to Neo4j: {e}, uri={uri}, db={self.kgdb_name}, user={username}"
+            )
+            self.status = "closed"
 
     def close(self):
         """关闭数据库连接"""
@@ -298,7 +312,12 @@ class GraphDatabase:
             logger.info(f"Adding entity to {kgdb_name}")
             session.execute_write(_create_graph, triples)
             logger.info(f"Creating vector index for {kgdb_name} with {config.embed_model}")
-            session.execute_write(_create_vector_index, cur_embed_info["dimension"])
+            if not cur_embed_info or "dimension" not in cur_embed_info:
+                logger.error(
+                    f"当前 embedding 模型 {self.embed_model_name} 的配置缺少 dimension 信息，跳过向量索引创建。"
+                )
+            else:
+                session.execute_write(_create_vector_index, cur_embed_info["dimension"])
 
             # 收集所有需要处理的实体名称，去重
             all_entities = []
@@ -433,6 +452,9 @@ class GraphDatabase:
         all_query_results = {"nodes": [], "edges": [], "triples": []}
         for entity in qualified_entities:
             query_result = self._query_specific_entity(entity_name=entity, kgdb_name=kgdb_name, hops=hops)
+            if not isinstance(query_result, dict):
+                logger.debug(f"Skip invalid query_result for entity {entity}: {type(query_result)}")
+                continue
             if return_format == "graph":
                 all_query_results["nodes"].extend(query_result["nodes"])
                 all_query_results["edges"].extend(query_result["edges"])

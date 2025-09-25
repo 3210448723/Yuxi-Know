@@ -48,3 +48,9 @@ docker/volumes
 .cursorrules
 
 /models
+.history
+wheels
+
+*.egg-info
+docker-compose.override.yml
+src/config/static

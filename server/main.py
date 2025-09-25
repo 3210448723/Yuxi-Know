@@ -60,4 +60,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(AuthMiddleware)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5050, threads=10, workers=10, reload=True)
+    # uvicorn.run(app, host="0.0.0.0", port=5252, threads=10, workers=10, reload=True)
+    # 使用导入字符串以支持 reload 模式
+    uvicorn.run("server.main:app", host="0.0.0.0", port=5252, reload=True)

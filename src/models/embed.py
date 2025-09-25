@@ -25,7 +25,10 @@ class BaseEmbeddingModel(ABC):
         self.model = model or name
         self.dimension = dimension
         self.base_url = get_docker_safe_url(base_url)
-        self.api_key = os.getenv(api_key, api_key)
+        if api_key:
+            self.api_key = os.getenv(api_key, "none")
+        else:
+            self.api_key = None
         self.embed_state = {}
 
     @abstractmethod
@@ -147,8 +150,10 @@ class OtherEmbedding(BaseEmbeddingModel):
             response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=60)
             response.raise_for_status()
             result = response.json()
-            if not isinstance(result, dict) or "data" not in result:
+            if not isinstance(result, dict) or ("data" not in result and "embeddings" not in result):
                 raise ValueError(f"Other Embedding failed: Invalid response format {result}")
+            if "embeddings" in result:
+                return result["embeddings"]
             return [item["embedding"] for item in result["data"]]
         except (requests.RequestException, json.JSONDecodeError) as e:
             logger.error(f"Other Embedding request failed: {e}, {payload}")
@@ -161,8 +166,10 @@ class OtherEmbedding(BaseEmbeddingModel):
                 response = await client.post(self.base_url, json=payload, headers=self.headers, timeout=60)
                 response.raise_for_status()
                 result = response.json()
-                if not isinstance(result, dict) or "data" not in result:
+                if not isinstance(result, dict) or ("data" not in result and "embeddings" not in result):
                     raise ValueError(f"Other Embedding failed: Invalid response format {result}")
+                if "embeddings" in result:
+                    return result["embeddings"]
                 return [item["embedding"] for item in result["data"]]
             except (httpx.RequestError, json.JSONDecodeError) as e:
                 logger.error(f"Other Embedding async request failed: {e}, {payload}")
@@ -247,6 +254,8 @@ async def test_all_embedding_models_status() -> dict:
 
 
 def select_embedding_model(model_id):
+    logger.debug(f"Selecting embedding model `{model_id}`")
+    assert model_id is not None, "Embedding model id not specified"
     provider, model_name = model_id.split("/", 1) if model_id else ("", "")
     support_embed_models = config.embed_model_names.keys()
     assert model_id in support_embed_models, f"Unsupported embed model: {model_id}, only support {support_embed_models}"
