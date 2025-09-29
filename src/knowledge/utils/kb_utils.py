@@ -175,7 +175,11 @@ def get_embedding_config(embed_info: dict) -> dict:
     try:
         if embed_info:
             config_dict["model"] = embed_info["name"]
-            config_dict["api_key"] = os.getenv(embed_info["api_key"], embed_info["api_key"])
+            # 如果有"api_key"就传入
+            if "api_key" in embed_info:
+                config_dict["api_key"] = os.getenv(embed_info["api_key"], "123")
+            else:
+                config_dict["api_key"] = "123"
             config_dict["base_url"] = embed_info["base_url"]
             config_dict["dimension"] = embed_info.get("dimension", 1024)
         else:

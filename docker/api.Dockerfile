@@ -37,16 +37,45 @@ COPY ../.python-version /app/.python-version
 # 接收构建参数
 ARG HTTP_PROXY=""
 ARG HTTPS_PROXY=""
+# 可配置 Python 镜像源（默认清华）
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 设置环境变量（这些值可能是空的）
 ENV HTTP_PROXY=$HTTP_PROXY \
     HTTPS_PROXY=$HTTPS_PROXY \
     http_proxy=$HTTP_PROXY \
-    https_proxy=$HTTPS_PROXY
+    https_proxy=$HTTPS_PROXY \
+    PIP_INDEX_URL=$PIP_INDEX_URL
 
-# 如果网络还是不好，可以在后面添加 --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# 复制本地离线 wheels（如存在）
+COPY ../wheels /app/wheels
+
+# 离线优先安装：先尝试用本地 wheels 安装大依赖，再在线补齐缺失依赖
+# 说明：
+# 1) 第一步 uv pip --no-index --find-links=/app/wheels 会仅从本地目录解析并安装已存在的 wheel 包，
+#    若目录不存在或空/不满足依赖，将继续下一步，不会影响后续在线安装。
+# 2) 第二步 uv sync 仍使用缓存挂载与镜像源，补齐剩余未安装的依赖；已安装的会被跳过（满足版本约束时）。
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-install-project
+    --mount=type=cache,target=/root/.cache/pip \
+    bash -lc 'set -euo pipefail; \
+    echo "[info] Using PIP_INDEX_URL=$PIP_INDEX_URL"; \
+    if [ -d /app/wheels ] && [ "$(ls -A /app/wheels || true)" != "" ]; then \
+        echo "[info] Detect local wheels, preparing project venv and installing into it..."; \
+        uv venv; \
+        VENV_PY=.venv/bin/python; \
+        HAS_WHL=$(compgen -G "/app/wheels/*.whl" || true); \
+        HAS_TAR=$(compgen -G "/app/wheels/*.tar.gz" || true); \
+        if [ -n "$HAS_WHL" ] || [ -n "$HAS_TAR" ]; then \
+            [ -n "$HAS_WHL" ] && uv pip install --python "$VENV_PY" --no-index --find-links /app/wheels --upgrade /app/wheels/*.whl || true; \
+            [ -n "$HAS_TAR" ] && uv pip install --python "$VENV_PY" --no-index --find-links /app/wheels --upgrade /app/wheels/*.tar.gz || true; \
+        else \
+            echo "[info] No local wheel/source archives (*.whl|*.tar.gz) found under /app/wheels."; \
+        fi; \
+    else \
+        echo "[info] No local wheels found, skipping offline install."; \
+    fi; \
+    echo "[info] Running online sync to resolve remaining deps..."; \
+    uv sync --no-dev --no-install-project --index-url $PIP_INDEX_URL'
 
 # 复制代码到容器中
 COPY ../src /app/src

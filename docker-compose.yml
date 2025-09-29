@@ -15,8 +15,7 @@ services:
       - ./saves:/app/saves
       - ./test:/app/test
       - ${MODEL_DIR:-./models}:/models  # 使用默认值处理未定义的环境变量
-    ports:
-      - "5050:5050"
+    # 不对宿主机暴露端口，web 通过内部网络访问 http://api:5050
     networks:
       - app-network
     extra_hosts:
@@ -66,7 +65,7 @@ services:
       - ./web/index.html:/app/index.html
       - ./web/vite.config.js:/app/vite.config.js
     ports:
-      - "5173:5173"
+      - "5273:5173"
     depends_on:
       - api
     networks:
@@ -108,9 +107,7 @@ services:
   graph:
     image: neo4j:5.26
     container_name: graph
-    ports:
-      - "7474:7474"
-      - "7687:7687"
+    # 不对宿主机暴露端口，api 通过 bolt://graph:7687 内部网络访问
     volumes:
       - ./docker/volumes/neo4j/data:/data
       - ./docker/volumes/neo4j/logs:/var/lib/neo4j/logs
@@ -166,9 +163,7 @@ services:
       timeout: 30s
       retries: 5
       start_period: 30s
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    # 不对宿主机暴露端口，api 通过 http://milvus-minio:9000 内部网络访问
     networks:
       - app-network
     restart: unless-stopped
@@ -192,9 +187,7 @@ services:
       start_period: 120s
       timeout: 30s
       retries: 5
-    ports:
-      - "19530:19530"
-      - "9091:9091"
+    # 不对宿主机暴露端口，api 通过 http://milvus:19530 内部网络访问
     depends_on:
       - "etcd"
       - "minio"
@@ -210,8 +203,7 @@ services:
     container_name: mineru
     profiles:
       - all
-    ports:
-      - 30000:30000
+    # 不对宿主机暴露端口，api 通过 http://mineru:30000 内部网络访问（当 profile 启用时）
     environment:
       MINERU_MODEL_SOURCE: modelscope
     entrypoint: mineru-sglang-server
@@ -245,8 +237,7 @@ services:
       - all
     volumes:
       - ./docker/volumes/paddlex:/paddlex
-    ports:
-      - "8080:8080"
+    # 不对宿主机暴露端口，api 通过 http://paddlex:8080 内部网络访问（当 profile 启用时）
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
       interval: 20s
