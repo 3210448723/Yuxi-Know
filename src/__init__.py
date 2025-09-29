@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 executor = ThreadPoolExecutor()
 
+executor = ThreadPoolExecutor()
+
 from src.config import config as config  # noqa: E402
 from src.utils import logger
 
